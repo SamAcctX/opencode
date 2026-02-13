@@ -1147,6 +1147,10 @@ export namespace Config {
             .describe("Token buffer for compaction. Leaves enough window to avoid overflow during compaction."),
         })
         .optional(),
+      yolo: z
+        .boolean()
+        .optional()
+        .describe("Enable YOLO mode - auto-approve all permission prompts (except explicit deny rules)"),
       experimental: z
         .object({
           disable_paste_summary: z.boolean().optional(),

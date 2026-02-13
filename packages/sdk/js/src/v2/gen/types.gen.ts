@@ -549,6 +549,13 @@ export type EventMessagePartRemoved = {
   }
 }
 
+export type EventYoloChanged = {
+  type: "yolo.changed"
+  properties: {
+    enabled: boolean
+  }
+}
+
 export type PermissionRequest = {
   id: string
   sessionID: string
@@ -972,6 +979,7 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessagePartDelta
   | EventMessagePartRemoved
+  | EventYoloChanged
   | EventPermissionAsked
   | EventPermissionReplied
   | EventSessionStatus
@@ -1474,6 +1482,10 @@ export type Config = {
      */
     reserved?: number
   }
+  /**
+   * Enable YOLO mode - auto-approve all permission prompts (except explicit deny rules)
+   */
+  yolo?: boolean
   experimental?: {
     disable_paste_summary?: boolean
     /**
@@ -2385,6 +2397,51 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type ConfigYoloGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/config/yolo"
+}
+
+export type ConfigYoloGetResponses = {
+  /**
+   * YOLO mode status
+   */
+  200: {
+    enabled: boolean
+    persisted: boolean
+  }
+}
+
+export type ConfigYoloGetResponse = ConfigYoloGetResponses[keyof ConfigYoloGetResponses]
+
+export type ConfigYoloSetData = {
+  body?: {
+    enabled: boolean
+    persist?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/config/yolo"
+}
+
+export type ConfigYoloSetResponses = {
+  /**
+   * YOLO mode updated
+   */
+  200: {
+    enabled: boolean
+    persisted: boolean
+  }
+}
+
+export type ConfigYoloSetResponse = ConfigYoloSetResponses[keyof ConfigYoloSetResponses]
 
 export type ToolIdsData = {
   body?: never
