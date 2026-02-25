@@ -11,6 +11,7 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSettings, monoFontFamily } from "@/context/settings"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { useServer } from "@/context/server"
 import { playSound, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
 
@@ -44,15 +45,22 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const settings = useSettings()
   const globalSDK = useGlobalSDK()
+  const server = useServer()
 
-  // YOLO state - wird später vom Server geladen
+  // Build auth headers from server connection credentials
+  const authHeaders = (): Record<string, string> => {
+    const http = server.current?.http
+    if (!http?.password) return {}
+    return { Authorization: `Basic ${btoa(`${http.username ?? "opencode"}:${http.password}`)}` }
+  }
+
+  // YOLO state
   const [yoloEnabled, setYoloEnabled] = createSignal(false)
   const [yoloPersisted, setYoloPersisted] = createSignal(false)
 
-  // Lade YOLO status beim Öffnen - mit kleinem Delay für Stabilität
   const loadYoloStatus = () => {
     const doFetch = platform.fetch ?? fetch
-    doFetch(`${globalSDK.url}/config/yolo`)
+    doFetch(`${globalSDK.url}/config/yolo`, { headers: authHeaders() })
       .then((response) => {
         if (response.ok) return response.json()
         return null
@@ -63,19 +71,16 @@ export const SettingsGeneral: Component = () => {
           setYoloPersisted(data.persisted === true)
         }
       })
-      .catch(() => {
-        // Silently ignore errors
-      })
+      .catch(() => {})
   }
 
-  // Initialer Load mit kleinem Delay
   setTimeout(loadYoloStatus, 100)
 
   const setYolo = (enabled: boolean, persist: boolean) => {
     const doFetch = platform.fetch ?? fetch
     doFetch(`${globalSDK.url}/config/yolo`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ enabled, persist }),
     })
       .then((response) => {
