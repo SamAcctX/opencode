@@ -649,6 +649,42 @@ export type EventMessagePartRemoved = {
   }
 }
 
+export type EventYoloChanged = {
+  type: "yolo.changed"
+  properties: {
+    enabled: boolean
+  }
+}
+
+export type PermissionRequest = {
+  id: string
+  sessionID: string
+  permission: string
+  patterns: Array<string>
+  metadata: {
+    [key: string]: unknown
+  }
+  always: Array<string>
+  tool?: {
+    messageID: string
+    callID: string
+  }
+}
+
+export type EventPermissionAsked = {
+  type: "permission.asked"
+  properties: PermissionRequest
+}
+
+export type EventPermissionReplied = {
+  type: "permission.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
+  }
+}
+
 export type SessionStatus =
   | {
       type: "idle"
@@ -977,6 +1013,9 @@ export type Event =
   | EventMessagePartUpdated
   | EventMessagePartDelta
   | EventMessagePartRemoved
+  | EventYoloChanged
+  | EventPermissionAsked
+  | EventPermissionReplied
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
@@ -1478,6 +1517,10 @@ export type Config = {
      */
     reserved?: number
   }
+  /**
+   * Enable YOLO mode - auto-approve all permission prompts (except explicit deny rules)
+   */
+  yolo?: boolean
   experimental?: {
     disable_paste_summary?: boolean
     /**
@@ -2408,6 +2451,51 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type ConfigYoloGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/config/yolo"
+}
+
+export type ConfigYoloGetResponses = {
+  /**
+   * YOLO mode status
+   */
+  200: {
+    enabled: boolean
+    persisted: boolean
+  }
+}
+
+export type ConfigYoloGetResponse = ConfigYoloGetResponses[keyof ConfigYoloGetResponses]
+
+export type ConfigYoloSetData = {
+  body?: {
+    enabled: boolean
+    persist?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/config/yolo"
+}
+
+export type ConfigYoloSetResponses = {
+  /**
+   * YOLO mode updated
+   */
+  200: {
+    enabled: boolean
+    persisted: boolean
+  }
+}
+
+export type ConfigYoloSetResponse = ConfigYoloSetResponses[keyof ConfigYoloSetResponses]
 
 export type ToolIdsData = {
   body?: never
