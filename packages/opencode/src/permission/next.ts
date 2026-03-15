@@ -1,22 +1,21 @@
-import { Bus } from "@/bus"
-import { BusEvent } from "@/bus/bus-event"
+import { runtime } from "@/effect/runtime"
 import { Config } from "@/config/config"
-import { SessionID, MessageID } from "@/session/schema"
-import { PermissionID } from "./schema"
-import { Instance } from "@/project/instance"
-import { Database, eq } from "@/storage/db"
-import { PermissionTable } from "@/session/session.sql"
 import { fn } from "@/util/fn"
-import { Log } from "@/util/log"
-import { ProjectID } from "@/project/schema"
 import { Wildcard } from "@/util/wildcard"
+import { Effect } from "effect"
 import { Yolo } from "@/yolo"
 import os from "os"
-import z from "zod"
+import * as S from "./service"
+import type {
+  Action as ActionType,
+  PermissionError,
+  Reply as ReplyType,
+  Request as RequestType,
+  Rule as RuleType,
+  Ruleset as RulesetType,
+} from "./service"
 
 export namespace PermissionNext {
-  const log = Log.create({ service: "permission" })
-
   function expand(pattern: string): string {
     if (pattern.startsWith("~/")) return os.homedir() + pattern.slice(1)
     if (pattern === "~") return os.homedir()
@@ -25,26 +24,26 @@ export namespace PermissionNext {
     return pattern
   }
 
-  export const Action = z.enum(["allow", "deny", "ask"]).meta({
-    ref: "PermissionAction",
-  })
-  export type Action = z.infer<typeof Action>
+  function runPromise<A>(f: (service: S.PermissionService.Api) => Effect.Effect<A, PermissionError>) {
+    return runtime.runPromise(S.PermissionService.use(f))
+  }
 
-  export const Rule = z
-    .object({
-      permission: z.string(),
-      pattern: z.string(),
-      action: Action,
-    })
-    .meta({
-      ref: "PermissionRule",
-    })
-  export type Rule = z.infer<typeof Rule>
-
-  export const Ruleset = Rule.array().meta({
-    ref: "PermissionRuleset",
-  })
-  export type Ruleset = z.infer<typeof Ruleset>
+  export const Action = S.Action
+  export type Action = ActionType
+  export const Rule = S.Rule
+  export type Rule = RuleType
+  export const Ruleset = S.Ruleset
+  export type Ruleset = RulesetType
+  export const Request = S.Request
+  export type Request = RequestType
+  export const Reply = S.Reply
+  export type Reply = ReplyType
+  export const Approval = S.Approval
+  export const Event = S.Event
+  export const Service = S.PermissionService
+  export const RejectedError = S.RejectedError
+  export const CorrectedError = S.CorrectedError
+  export const DeniedError = S.DeniedError
 
   export function fromConfig(permission: Config.Permission) {
     const ruleset: Ruleset = []
@@ -68,51 +67,12 @@ export namespace PermissionNext {
     return rulesets.flat()
   }
 
-  export const Request = z
-    .object({
-      id: PermissionID.zod,
-      sessionID: SessionID.zod,
-      permission: z.string(),
-      patterns: z.string().array(),
-      metadata: z.record(z.string(), z.any()),
-      always: z.string().array(),
-      tool: z
-        .object({
-          messageID: MessageID.zod,
-          callID: z.string(),
-        })
-        .optional(),
-    })
-    .meta({
-      ref: "PermissionRequest",
-    })
+  export const ask = fn(S.AskInput, async (input) => runPromise((service) => service.ask(input)))
 
-  export type Request = z.infer<typeof Request>
+  export const reply = fn(S.ReplyInput, async (input) => runPromise((service) => service.reply(input)))
 
-  export const Reply = z.enum(["once", "always", "reject"])
-  export type Reply = z.infer<typeof Reply>
-
-  export const Approval = z.object({
-    projectID: ProjectID.zod,
-    patterns: z.string().array(),
-  })
-
-  export const Event = {
-    Asked: BusEvent.define("permission.asked", Request),
-    Replied: BusEvent.define(
-      "permission.replied",
-      z.object({
-        sessionID: SessionID.zod,
-        requestID: PermissionID.zod,
-        reply: Reply,
-      }),
-    ),
-  }
-
-  interface PendingEntry {
-    info: Request
-    resolve: () => void
-    reject: (e: any) => void
+  export async function list() {
+    return runPromise((service) => service.list())
   }
 
   const state = Instance.state(() => {
@@ -239,12 +199,7 @@ export namespace PermissionNext {
   )
 
   export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
-    const merged = merge(...rulesets)
-    log.info("evaluate", { permission, pattern, ruleset: merged })
-    const match = merged.findLast(
-      (rule) => Wildcard.match(permission, rule.permission) && Wildcard.match(pattern, rule.pattern),
-    )
-    return match ?? { action: "ask", permission, pattern: "*" }
+    return S.evaluate(permission, pattern, ...rulesets)
   }
 
   const EDIT_TOOLS = ["edit", "write", "patch", "multiedit"]
@@ -253,39 +208,10 @@ export namespace PermissionNext {
     const result = new Set<string>()
     for (const tool of tools) {
       const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
-
-      const rule = ruleset.findLast((r) => Wildcard.match(permission, r.permission))
+      const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
     }
     return result
-  }
-
-  /** User rejected without message - halts execution */
-  export class RejectedError extends Error {
-    constructor() {
-      super(`The user rejected permission to use this specific tool call.`)
-    }
-  }
-
-  /** User rejected with message - continues with guidance */
-  export class CorrectedError extends Error {
-    constructor(message: string) {
-      super(`The user rejected permission to use this specific tool call with the following feedback: ${message}`)
-    }
-  }
-
-  /** Auto-rejected by config rule - halts execution */
-  export class DeniedError extends Error {
-    constructor(public readonly ruleset: Ruleset) {
-      super(
-        `The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules ${JSON.stringify(ruleset)}`,
-      )
-    }
-  }
-
-  export async function list() {
-    const s = await state()
-    return Array.from(s.pending.values(), (x) => x.info)
   }
 }
